@@ -1,0 +1,77 @@
+workflows:
+  potter-ios:
+    name: PotTer Hill Racing iOS (unsigned IPA)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+    scripts:
+      - name: Prepare iOS wrapper
+        script: |
+          set -e
+          mkdir -p PotterApp/Assets.xcassets PotterApp/Web
+          cp index.html PotterApp/Web/index.html
+          cat > PotterApp/PotterApp.swift <<'SWIFT'
+          import SwiftUI
+          import WebKit
+
+          struct GameView: UIViewRepresentable {
+              func makeUIView(context: Context) -> WKWebView {
+                  let view = WKWebView(frame: .zero)
+                  view.scrollView.isScrollEnabled = false
+                  view.isOpaque = false
+                  view.backgroundColor = .black
+                  view.scrollView.contentInsetAdjustmentBehavior = .never
+                  if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web") {
+                      view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+                  }
+                  return view
+              }
+              func updateUIView(_ uiView: WKWebView, context: Context) {}
+          }
+
+          @main struct PotterApp: App {
+              var body: some Scene {
+                  WindowGroup { GameView().ignoresSafeArea() }
+              }
+          }
+          SWIFT
+          cat > project.yml <<'YAML'
+          name: PotterHillRacing
+          options:
+            bundleIdPrefix: com.pottergames
+            deploymentTarget:
+              iOS: '15.0'
+          targets:
+            PotterHillRacing:
+              type: application
+              platform: iOS
+              sources:
+                - path: PotterApp
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.pottergames.hillracing
+                  INFOPLIST_KEY_CFBundleDisplayName: PotTer Racing
+                  INFOPLIST_KEY_UILaunchScreen_Generation: YES
+                  INFOPLIST_KEY_UIRequiresFullScreen: YES
+                  TARGETED_DEVICE_FAMILY: '1'
+                  SWIFT_VERSION: '5.0'
+                  CODE_SIGNING_ALLOWED: NO
+                  GENERATE_INFOPLIST_FILE: YES
+                  ASSETCATALOG_COMPILER_APPICON_NAME: ''
+          YAML
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          xcodegen generate
+      - name: Build iPhone application
+        script: |
+          set -e
+          xcodebuild -project PotterHillRacing.xcodeproj -scheme PotterHillRacing -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$CM_BUILD_DIR/derived" CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA for GBox signing
+        script: |
+          set -e
+          mkdir -p "$CM_BUILD_DIR/ipa/Payload" "$CM_BUILD_DIR/artifacts"
+          cp -R "$CM_BUILD_DIR/derived/Build/Products/Release-iphoneos/PotterHillRacing.app" "$CM_BUILD_DIR/ipa/Payload/"
+          cd "$CM_BUILD_DIR/ipa"
+          zip -qr "$CM_BUILD_DIR/artifacts/PotTer-Hill-Racing-unsigned.ipa" Payload
+    artifacts:
+      - artifacts/*.ipa
